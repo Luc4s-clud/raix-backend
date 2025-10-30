@@ -2,10 +2,17 @@ import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 dotenv.config();
 
+// Decide automaticamente o modo "secure" conforme a porta, permitindo override por env
+const smtpPort = Number(process.env.SMTP_PORT) || 587; // default STARTTLS
+const envSecure = process.env.SMTP_SECURE;
+const smtpSecure = typeof envSecure === "string"
+  ? envSecure.toLowerCase() === "true"
+  : smtpPort === 465; // 465 = SMTPS (secure: true), 587 = STARTTLS (secure: false)
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: true,
+  port: smtpPort,
+  secure: smtpSecure,
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
 });
 
