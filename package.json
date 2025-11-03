@@ -20,7 +20,8 @@
     "mysql2": "^3.9.7",
     "nodemailer": "^6.9.8",
     "uuid": "^9.0.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@aws-sdk/client-ses": "^3.658.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"

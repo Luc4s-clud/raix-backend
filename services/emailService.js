@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -33,7 +34,41 @@ const transporter = nodemailer.createTransport({
 });
 
 async function sendEmail({ to, subject, html }) {
-  // Preferir Resend API quando a chave estiver definida (evita bloqueios SMTP no provedor)
+  // Prioridade 1: AWS SES via API (HTTPS - funciona em qualquer PaaS)
+  if (process.env.AWS_SES_ACCESS_KEY_ID && process.env.AWS_SES_SECRET_ACCESS_KEY) {
+    if (process.env.NODE_ENV !== "test") {
+      console.log("📧 Modo de envio: AWS SES API");
+    }
+    const region = process.env.AWS_REGION || "us-east-1";
+    const from = process.env.SES_FROM || "Campanha Raíx <no-reply@raixbiosolucoes.com.br>";
+    
+    const sesClient = new SESClient({
+      region,
+      credentials: {
+        accessKeyId: process.env.AWS_SES_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SES_SECRET_ACCESS_KEY,
+      },
+    });
+
+    try {
+      const command = new SendEmailCommand({
+        Source: from,
+        Destination: { ToAddresses: [to] },
+        Message: {
+          Subject: { Data: subject, Charset: "UTF-8" },
+          Body: { Html: { Data: html, Charset: "UTF-8" } },
+        },
+      });
+
+      await sesClient.send(command);
+      return;
+    } catch (err) {
+      // Se falhar, continua para próxima opção (Resend ou SMTP)
+      console.warn("AWS SES falhou, tentando próximo método:", err.message);
+    }
+  }
+
+  // Prioridade 2: Resend API quando a chave estiver definida (evita bloqueios SMTP no provedor)
   if (process.env.RESEND_API_KEY) {
     if (process.env.NODE_ENV !== "test") {
       console.log("📧 Modo de envio: Resend API");
