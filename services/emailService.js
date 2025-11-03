@@ -16,6 +16,43 @@ const transporter = nodemailer.createTransport({
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
 });
 
+async function sendEmail({ to, subject, html }) {
+  // Preferir Resend API quando a chave estiver definida (evita bloqueios SMTP no provedor)
+  if (process.env.RESEND_API_KEY) {
+    if (process.env.NODE_ENV !== "test") {
+      console.log("📧 Modo de envio: Resend API");
+    }
+    const from = process.env.RESEND_FROM || `Campanha Raíx <onboarding@resend.dev>`;
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from, to, subject, html }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Resend API error: ${response.status} ${text}`);
+    }
+    return;
+  }
+
+  // Fallback: SMTP (funciona quando portas não estão bloqueadas)
+  if (process.env.NODE_ENV !== "test") {
+    console.log(
+      `📧 Modo de envio: SMTP host=${process.env.SMTP_HOST} port=${smtpPort} secure=${smtpSecure}`
+    );
+  }
+  await transporter.sendMail({
+    from: `Campanha Raíx <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    html,
+  });
+}
+
 export async function enviarEmailCupons({ nome, email, cupons }) {
   const lista = cupons.map(c => `<li>${c}</li>`).join("");
 
@@ -27,8 +64,7 @@ export async function enviarEmailCupons({ nome, email, cupons }) {
     <p>Boa sorte 🍀<br>Equipe Raíx 🌱</p>
   `;
 
-  await transporter.sendMail({
-    from: `"Campanha Raíx" <${process.env.SMTP_USER}>`,
+  await sendEmail({
     to: email,
     subject: "🎉 Seus cupons da campanha Raíx estão prontos!",
     html,
@@ -46,8 +82,7 @@ export async function enviarEmailReprovacao({ nome, email, motivo }) {
     <p>Qualquer dúvida, estamos à disposição.<br>Equipe Raíx 🌱</p>
   `;
 
-  await transporter.sendMail({
-    from: `"Campanha Raíx" <${process.env.SMTP_USER}>`,
+  await sendEmail({
     to: email,
     subject: "Sua participação na campanha Raíx foi reprovada",
     html,
