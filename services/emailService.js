@@ -9,11 +9,27 @@ const smtpSecure = typeof envSecure === "string"
   ? envSecure.toLowerCase() === "true"
   : smtpPort === 465; // 465 = SMTPS (secure: true), 587 = STARTTLS (secure: false)
 
+// Timeouts configuráveis com defaults seguros
+const connectionTimeout = Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 15000);
+const greetingTimeout = Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000);
+const socketTimeout = Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000);
+
+// requireTLS por padrão para Office365
+const isOffice365 = typeof process.env.SMTP_HOST === "string" && process.env.SMTP_HOST.includes("office365.com");
+const requireTLS = (process.env.SMTP_REQUIRE_TLS || (isOffice365 ? "true" : "false")).toLowerCase() === "true";
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: smtpPort,
   secure: smtpSecure,
+  requireTLS,
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  connectionTimeout,
+  greetingTimeout,
+  socketTimeout,
+  tls: {
+    minVersion: "TLSv1.2",
+  },
 });
 
 async function sendEmail({ to, subject, html }) {
@@ -68,12 +84,42 @@ async function sendEmail({ to, subject, html }) {
       `📧 Modo de envio: SMTP host=${process.env.SMTP_HOST} port=${smtpPort} secure=${smtpSecure}`
     );
   }
-  await transporter.sendMail({
-    from: `Campanha Raíx <${process.env.SMTP_USER}>`,
-    to,
-    subject,
-    html,
-  });
+  try {
+    await transporter.sendMail({
+      from: `Campanha Raíx <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html,
+    });
+  } catch (err) {
+    // Retry automático: se for timeout com host legacy da Office365, tenta host moderno
+    const host = process.env.SMTP_HOST || "";
+    const isLegacyO365 = host.includes("smtp-legacy.office365.com");
+    const isTimeout = err && (err.code === "ETIMEDOUT" || err.command === "CONN");
+    if (isLegacyO365 && isTimeout) {
+      const altHost = "smtp.office365.com";
+      console.warn(`Conexão SMTP timeout em ${host}. Tentando novamente em ${altHost}...`);
+      const retryTransporter = nodemailer.createTransport({
+        host: altHost,
+        port: smtpPort,
+        secure: smtpSecure,
+        requireTLS: true,
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        connectionTimeout,
+        greetingTimeout,
+        socketTimeout,
+        tls: { minVersion: "TLSv1.2" },
+      });
+      await retryTransporter.sendMail({
+        from: `Campanha Raíx <${process.env.SMTP_USER}>`,
+        to,
+        subject,
+        html,
+      });
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function enviarEmailCupons({ nome, email, cupons }) {
