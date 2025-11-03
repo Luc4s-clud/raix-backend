@@ -14,13 +14,13 @@ router.post("/", upload.single("arquivo"), async (req, res) => {
     const arquivo = req.file;
 
     if (!arquivo)
-      return res.status(400).json({ error: "Arquivo obrigatório (PDF ou PNG)." });
+      return res.status(400).json({ error: "Arquivo obrigatório (PDF, JPG ou PNG)." });
 
     // Verifica tipo de arquivo
     const tipo = arquivo.mimetype;
-    if (!["application/pdf", "image/png"].includes(tipo)) {
+    if (!["application/pdf", "image/png", "image/jpeg"].includes(tipo)) {
       fs.unlinkSync(arquivo.path); // remove o arquivo inválido
-      return res.status(400).json({ error: "Formato inválido. Envie apenas PDF ou PNG." });
+      return res.status(400).json({ error: "Formato inválido. Envie apenas PDF, JPG ou PNG." });
     }
 
     // Verifica ou cria produtor

@@ -23,6 +23,15 @@ async function sendEmail({ to, subject, html }) {
       console.log("📧 Modo de envio: Resend API");
     }
     const from = process.env.RESEND_FROM || `Campanha Raíx <onboarding@resend.dev>`;
+
+    // Em ambientes não-prod, permitir redirecionar todos os envios para um e-mail de teste
+    const isProduction = process.env.NODE_ENV === "production";
+    const testRedirectTo = process.env.RESEND_TEST_REDIRECT_TO || process.env.DEV_EMAIL;
+    const originalTo = to;
+    if (!isProduction && testRedirectTo) {
+      to = testRedirectTo;
+    }
+
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -34,6 +43,20 @@ async function sendEmail({ to, subject, html }) {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
+
+      // Se for o erro de testes da Resend (403) e houver SMTP configurado, fazer fallback automático
+      const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+      if (response.status === 403 && hasSmtp) {
+        console.warn("Resend retornou 403 (provável modo de testes). Fazendo fallback para SMTP...");
+        await transporter.sendMail({
+          from: `Campanha Raíx <${process.env.SMTP_USER}>`,
+          to: originalTo,
+          subject,
+          html,
+        });
+        return;
+      }
+
       throw new Error(`Resend API error: ${response.status} ${text}`);
     }
     return;

@@ -2,8 +2,9 @@ import { pool } from "../db.js";
 import crypto from "crypto";
 
 // Limites de geração de cupons
-const MIN_COUPON = 0; // RAIX000000
-const MAX_COUPON = 10000; // RAIX010000 (exclusive, então vai até 9999 = RAIX009999)
+// Agora de 1 até 99.999 (inclusive). Usamos MAX exclusivo (100.000)
+const MIN_COUPON = 1; // RAIX000001
+const MAX_COUPON = 100000; // exclusivo, gera até 99.999
 
 /**
  * Gera código de cupom no formato RAIX + número (6 dígitos)
@@ -43,16 +44,17 @@ export async function gerarCupons(produtorId, notaId, qtd) {
   let tentativas = 0;
   const maxTentativas = qtd * 100; // Limite de tentativas para evitar loop infinito
 
-  // Verifica quantos cupons já foram gerados
-  const cuponsDisponiveis = MAX_COUPON - existingCoupons.size;
+  // Verifica quantos cupons já foram gerados (MAX é exclusivo)
+  const capacidadeTotal = MAX_COUPON - MIN_COUPON; // 99.999
+  const cuponsDisponiveis = capacidadeTotal - existingCoupons.size;
   
   if (cuponsDisponiveis < qtd) {
-    throw new Error(`Não há cupons suficientes disponíveis. Restam apenas ${cuponsDisponiveis} cupons na faixa de 0 a 10.000.`);
+    throw new Error(`Não há cupons suficientes disponíveis. Restam apenas ${cuponsDisponiveis} cupons na faixa de 1 a 99.999.`);
   }
 
-  // Gera cupons aleatórios dentro da faixa de 0 a 10.000
+  // Gera cupons aleatórios dentro da faixa de 1 a 99.999
   while (gerados.length < qtd) {
-    // Gera número aleatório entre 0 e 9999
+    // Gera número aleatório entre 1 e 99.999
     const randomNumber = generateRandomNumber(MIN_COUPON, MAX_COUPON - 1);
     const codigo = formatCouponCode(randomNumber);
 
