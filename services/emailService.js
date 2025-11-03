@@ -42,11 +42,19 @@ async function sendEmail({ to, subject, html }) {
     const region = process.env.AWS_REGION || "us-east-1";
     const from = process.env.SES_FROM || "Campanha Raíx <no-reply@raixbiosolucoes.com.br>";
     
+    // Remove espaços extras das credenciais (pode acontecer ao copiar/colar)
+    const accessKeyId = process.env.AWS_SES_ACCESS_KEY_ID.trim();
+    const secretAccessKey = process.env.AWS_SES_SECRET_ACCESS_KEY.trim();
+    
+    if (process.env.NODE_ENV !== "test") {
+      console.log(`🔧 AWS SES Config - Region: ${region}, From: ${from}, AccessKey: ${accessKeyId.substring(0, 8)}...`);
+    }
+    
     const sesClient = new SESClient({
       region,
       credentials: {
-        accessKeyId: process.env.AWS_SES_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SES_SECRET_ACCESS_KEY,
+        accessKeyId,
+        secretAccessKey,
       },
     });
 
@@ -64,7 +72,11 @@ async function sendEmail({ to, subject, html }) {
       return;
     } catch (err) {
       // Se falhar, continua para próxima opção (Resend ou SMTP)
-      console.warn("AWS SES falhou, tentando próximo método:", err.message);
+      console.error(`❌ AWS SES Error: ${err.name} - ${err.message}`);
+      if (err.message.includes("signature") || err.message.includes("credentials")) {
+        console.error("⚠️ Dica: Verifique se AWS_SES_ACCESS_KEY_ID e AWS_SES_SECRET_ACCESS_KEY estão corretos e se AWS_REGION está configurado corretamente (deve ser 'sa-east-1' se verificou em São Paulo)");
+      }
+      console.warn("AWS SES falhou, tentando próximo método...");
     }
   }
 
