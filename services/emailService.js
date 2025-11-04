@@ -33,7 +33,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, text }) {
   // Prioridade 1: AWS SES via API (HTTPS - funciona em qualquer PaaS)
   if (process.env.AWS_SES_ACCESS_KEY_ID && process.env.AWS_SES_SECRET_ACCESS_KEY) {
     if (process.env.NODE_ENV !== "test") {
@@ -59,12 +59,21 @@ async function sendEmail({ to, subject, html }) {
     });
 
     try {
+      const messageBody = {
+        Html: { Data: html, Charset: "UTF-8" },
+      };
+      
+      // Adiciona versão texto se fornecida (melhora deliverability)
+      if (text) {
+        messageBody.Text = { Data: text, Charset: "UTF-8" };
+      }
+
       const command = new SendEmailCommand({
         Source: from,
         Destination: { ToAddresses: [to] },
         Message: {
           Subject: { Data: subject, Charset: "UTF-8" },
-          Body: { Html: { Data: html, Charset: "UTF-8" } },
+          Body: messageBody,
         },
       });
 
@@ -101,11 +110,11 @@ async function sendEmail({ to, subject, html }) {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from, to, subject, html }),
+      body: JSON.stringify({ from, to, subject, html, ...(text && { text }) }),
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
+      const errorText = await response.text().catch(() => "");
 
       // Se for o erro de testes da Resend (403) e houver SMTP configurado, fazer fallback automático
       const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
@@ -116,11 +125,12 @@ async function sendEmail({ to, subject, html }) {
           to: originalTo,
           subject,
           html,
+          ...(text && { text }),
         });
         return;
       }
 
-      throw new Error(`Resend API error: ${response.status} ${text}`);
+      throw new Error(`Resend API error: ${response.status} ${errorText}`);
     }
     return;
   }
@@ -137,6 +147,7 @@ async function sendEmail({ to, subject, html }) {
       to,
       subject,
       html,
+      ...(text && { text }),
     });
   } catch (err) {
     // Retry automático: se for timeout com host legacy da Office365, tenta host moderno
@@ -162,6 +173,7 @@ async function sendEmail({ to, subject, html }) {
         to,
         subject,
         html,
+        ...(text && { text }),
       });
       return;
     }
@@ -170,20 +182,63 @@ async function sendEmail({ to, subject, html }) {
 }
 
 export async function enviarEmailCupons({ nome, email, cupons }) {
-  const lista = cupons.map(c => `<li>${c}</li>`).join("");
+  const lista = cupons.map(c => `<li style="margin: 8px 0;"><strong>${c}</strong></li>`).join("");
+  const listaTexto = cupons.map(c => `- ${c}`).join("\n");
 
   const html = `
-    <h3>Olá, ${nome}!</h3>
-    <p>Sua Nota Fiscal foi validada com sucesso pela equipe Raíx.</p>
-    <p>Você recebeu <b>${cupons.length}</b> cupons:</p>
-    <ul>${lista}</ul>
-    <p>Boa sorte 🍀<br>Equipe Raíx 🌱</p>
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+        <h2 style="color: #28a745; margin-top: 0;">Olá, ${nome}!</h2>
+        <p style="font-size: 16px;">Sua Nota Fiscal foi <strong>validada com sucesso</strong> pela equipe Raíx.</p>
+      </div>
+      
+      <div style="background-color: #fff; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 20px;">
+        <p style="font-size: 16px; margin-bottom: 15px;">Você recebeu <strong>${cupons.length}</strong> cupons:</p>
+        <ul style="list-style: none; padding-left: 0;">
+          ${lista}
+        </ul>
+      </div>
+      
+      <p style="color: #6c757d; font-size: 14px; margin-top: 30px;">
+        Boa sorte! 🍀<br>
+        <strong>Equipe Raíx</strong> 🌱
+      </p>
+      
+      <hr style="border: none; border-top: 1px solid #dee2e6; margin: 30px 0;">
+      <p style="color: #6c757d; font-size: 12px; text-align: center;">
+        Este é um e-mail transacional da campanha Raíx. Você está recebendo porque sua nota fiscal foi aprovada.
+      </p>
+    </body>
+    </html>
   `;
+
+  const texto = `
+Olá, ${nome}!
+
+Sua Nota Fiscal foi validada com sucesso pela equipe Raíx.
+
+Você recebeu ${cupons.length} cupons:
+
+${listaTexto}
+
+Boa sorte!
+Equipe Raíx 🌱
+
+---
+Este é um e-mail transacional da campanha Raíx.
+  `.trim();
 
   await sendEmail({
     to: email,
     subject: "🎉 Seus cupons da campanha Raíx estão prontos!",
     html,
+    text: texto,
   });
 
   console.log(`✅ E-mail enviado para ${email}`);
