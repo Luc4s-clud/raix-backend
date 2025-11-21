@@ -12,7 +12,12 @@ import adminUsersRoutes from "./routes/adminUsers.js";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+  credentials: true
+}));
 app.use(express.json());
 app.use(morgan("dev"));
 app.use("/uploads", express.static("uploads"));
@@ -24,4 +29,4 @@ app.use("/admin/notas", notasRoutes);
 app.use("/admin/users", adminUsersRoutes);
 
 const PORT = process.env.PORT || 4015;
-app.listen(PORT, () => console.log(`✅ Servidor rodando na porta ${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log("Servidor rodando na porta", PORT));
