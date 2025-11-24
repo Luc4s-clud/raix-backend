@@ -3,17 +3,31 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { pool } from "../db.js";
 import dotenv from "dotenv";
+import { asyncHandler } from "../middlewares/errorHandler.js";
+import { loginRateLimiter } from "../middlewares/rateLimiter.js";
+import {
+  successResponse,
+  validationErrorResponse,
+  unauthorizedResponse,
+  errorResponse,
+} from "../utils/responseHelper.js";
+import { validateRequired } from "../utils/validators.js";
+
 dotenv.config();
 
 const router = express.Router();
 
 // Login
-router.post("/login", async (req, res) => {
-  try {
+router.post(
+  "/login",
+  loginRateLimiter(),
+  asyncHandler(async (req, res) => {
     const { usuario, senha } = req.body;
 
-    if (!usuario || !senha) {
-      return res.status(400).json({ error: "Usuário e senha são obrigatórios." });
+    // Valida campos obrigatórios
+    const requiredValidation = validateRequired({ usuario, senha }, ["usuario", "senha"]);
+    if (!requiredValidation.isValid) {
+      return validationErrorResponse(res, "Usuário e senha são obrigatórios.");
     }
 
     // Busca o administrador
@@ -23,7 +37,7 @@ router.post("/login", async (req, res) => {
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ error: "Usuário ou senha inválidos." });
+      return unauthorizedResponse(res, "Usuário ou senha inválidos.");
     }
 
     const admin = rows[0];
@@ -31,14 +45,11 @@ router.post("/login", async (req, res) => {
     // Verifica a senha
     const senhaValida = await bcrypt.compare(senha, admin.senha);
     if (!senhaValida) {
-      return res.status(401).json({ error: "Usuário ou senha inválidos." });
+      return unauthorizedResponse(res, "Usuário ou senha inválidos.");
     }
 
     // Atualiza último acesso
-    await pool.query(
-      "UPDATE administradores SET ultimo_acesso = NOW() WHERE id = ?",
-      [admin.id]
-    );
+    await pool.query("UPDATE administradores SET ultimo_acesso = NOW() WHERE id = ?", [admin.id]);
 
     // Gera token JWT
     const token = jwt.sign(
@@ -47,28 +58,29 @@ router.post("/login", async (req, res) => {
       { expiresIn: "8h" }
     );
 
-    res.json({
-      success: true,
-      token,
-      admin: {
-        id: admin.id,
-        usuario: admin.usuario,
-        nome: admin.nome,
+    return successResponse(
+      res,
+      {
+        token,
+        admin: {
+          id: admin.id,
+          usuario: admin.usuario,
+          nome: admin.nome,
+        },
       },
-    });
-  } catch (err) {
-    console.error("Erro no login:", err);
-    res.status(500).json({ error: "Erro ao realizar login." });
-  }
-});
+      "Login realizado com sucesso"
+    );
+  })
+);
 
 // Verificar token (para validar se ainda está autenticado)
-router.get("/verify", async (req, res) => {
-  try {
+router.get(
+  "/verify",
+  asyncHandler(async (req, res) => {
     const token = req.headers.authorization?.replace("Bearer ", "");
 
     if (!token) {
-      return res.status(401).json({ error: "Token não fornecido." });
+      return unauthorizedResponse(res, "Token não fornecido.");
     }
 
     const decoded = jwt.verify(
@@ -83,24 +95,18 @@ router.get("/verify", async (req, res) => {
     );
 
     if (rows.length === 0) {
-      return res.status(401).json({ error: "Administrador não encontrado." });
+      return unauthorizedResponse(res, "Administrador não encontrado.");
     }
 
-    res.json({
-      success: true,
+    return successResponse(res, {
       admin: {
         id: rows[0].id,
         usuario: rows[0].usuario,
         nome: rows[0].nome,
       },
     });
-  } catch (err) {
-    if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
-      return res.status(401).json({ error: "Token inválido ou expirado." });
-    }
-    res.status(500).json({ error: "Erro ao verificar token." });
-  }
-});
+  })
+);
 
 export default router;
 
